@@ -1,9 +1,13 @@
 (ns websimulate.core
   (:require
    [etaoin.api :as e]
-   [clojure.repl :as repl]))
+   [clojure.repl :as repl])
+  (:import (java.util Date)))
 
-(def global-debug false)
+(def global-debug true)
+(def global-screenshot-folder "screenshots/")
+(def global-delay 0)
+(def global-delay-override nil)
 
 (defn run-step [driver step step-function-map]
   (when global-debug
@@ -16,17 +20,34 @@
         :else (fn driver value))
       (println "Unknown step" step))))
 
-(def global-delay 0)
+(defn update-timeouts [opts]
+  (cond
+    global-delay-override
+    (assoc opts :timeout global-delay-override)
+
+    :else
+    (if (:timeout opts)
+      (assoc opts :timeout (+ global-delay (:timeout opts)))
+      opts)))
 
 (def step-function-map
   {:go e/go
-   :wait-visible e/wait-visible
+   :wait-visible
+   (fn [driver text & [opts]]
+     (e/wait-visible driver text (update-timeouts opts)))
    :fill (fn [driver & args] (apply e/fill driver args))
-   :wait-has-text-everywhere e/wait-has-text-everywhere
-   :wait (fn [driver delay] (e/wait driver (+ global-delay delay)))
+   :wait-has-text-everywhere
+   (fn [driver text & [opts]]
+     (e/wait-has-text-everywhere driver text (update-timeouts opts)))
+   :wait
+   (fn [driver delay]
+     (e/wait driver (or global-delay-override (+ global-delay delay))))
    :query e/query
    :click e/click
-   :screenshot e/screenshot
+   :get-element-text e/get-element-text
+   :screenshot
+   (fn [driver path]
+     (e/screenshot driver (str global-screenshot-folder path " " (str (Date.)) ".png")))
    :println println
    :conditional
    (fn [driver [step & args] then-steps else-steps]
@@ -45,7 +66,8 @@
       (doseq [step (get test-data test-name)]
         (run-step driver step step-function-map))
       (finally
-        (e/quit driver)))
+        ;(e/quit driver)
+        ))
     {:success true :msg (str test-name " completed successfully")}))
 
 (defn try-with-error-handling [fn]
